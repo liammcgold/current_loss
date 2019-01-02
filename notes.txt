@@ -1,0 +1,7 @@
+
+TO DO
+        -Implement more efficient method of calculating approximation
+        -Test to find optimal number of iterations for solver
+        -Determine best way to normalize output for loss scaling (maybe 1+normalize_current)
+        -Adapt to work with tensorflow
+    
