@@ -8,7 +8,7 @@ def brute_force(gt):
     '''
       phi_i corresponds to fields
 
-      the boundary conditions will be defined for each supervoxel and laplace will be solved
+      the boundary conditions will be defined for each supervoxel and poison will be solved
 
       this will then be used to generate omega which is the vector containing max currents at each point
 
