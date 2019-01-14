@@ -2,36 +2,7 @@ import numpy as np
 from scipy.ndimage.filters import convolve,sobel
 import tifffile
 
-class state(object):
 
-    def __init__(self,gt,n):
-
-
-        # two n chanel volumes, one for theta and one for phi bar
-        # first pass theta chanel 0 is equivalent to gt and phi bar is equivalent to the
-        # the coresponding
-
-        # first lets generate theta for first pass
-
-        # theta will be in the form (j_1,j_2...j_n,len) where len indicates how many
-        # values are not null
-        theta = np.zeros(np.shape(gt) + (n,), dtype=np.int)
-
-        # first element is ID
-        theta[:, :, :, 0] = gt
-
-        # last element is 1 because only one value is not null in first pass
-        theta[:, :, :, n] = 1
-
-        # phi bar defined similarly where last value is  list length
-        phi_bar = np.zeros(np.shape(gt) + (n,), dtype=np.float32)
-
-        # populate first section with theta values
-        phi_bar[:, :, :, 0] = np.asarray(gt != 0, dtype=np.float32)
-
-
-        self.theta=theta
-        self.phi=phi_bar
 
 def brute_force(gt,n=100):
 
@@ -169,7 +140,36 @@ def __get_currents(fields):
 
     return currents
 
-
+# class state(object):
+#
+#     def __init__(self,gt,n):
+#
+#
+#         # two n chanel volumes, one for theta and one for phi bar
+#         # first pass theta chanel 0 is equivalent to gt and phi bar is equivalent to the
+#         # the coresponding
+#
+#         # first lets generate theta for first pass
+#
+#         # theta will be in the form (j_1,j_2...j_n,len) where len indicates how many
+#         # values are not null
+#         theta = np.zeros(np.shape(gt) + (n,), dtype=np.int)
+#
+#         # first element is ID
+#         theta[:, :, :, 0] = gt
+#
+#         # last element is 1 because only one value is not null in first pass
+#         theta[:, :, :, n] = 1
+#
+#         # phi bar defined similarly where last value is  list length
+#         phi_bar = np.zeros(np.shape(gt) + (n,), dtype=np.float32)
+#
+#         # populate first section with theta values
+#         phi_bar[:, :, :, 0] = np.asarray(gt != 0, dtype=np.float32)
+#
+#
+#         self.theta=theta
+#         self.phi=phi_bar
 # def approximation(gt,n=6):
 #
 #     '''
@@ -295,3 +295,4 @@ def __get_currents(fields):
 #
 #                         new_phi[i,j,k]=averages[-5:]
 
+x=1
