@@ -1,8 +1,9 @@
 import numpy as np
 from scipy.ndimage.filters import convolve,sobel
 import tifffile
-
-
+import math
+import gputools
+import time as t
 
 def brute_force(gt,n=100):
 
@@ -18,55 +19,85 @@ def brute_force(gt,n=100):
 
 
 
-    fields=__get_fields(gt,n=n)
+    fields=__get_fields_cuda(gt,n=n)
 
     currents=__get_currents(fields)
 
     return currents
 
-def random_method(gt,k):
+def random_method(gt,k,n=100,verbose=0):
 
+    #verbose=0 nothign
+    #verbose=1 just shows each case
+    #verbose=2 shows each case plus steps with times
+    #verbose=3 shows each case plust steps with times and solver steps and times
+
+    if verbose>0:
+        print("Initializing...")
     #due to probability calculations this value minimizes error always
     n=3
 
     uniques=np.unique(gt)
     uniques=np.delete(uniques,np.where(uniques==0))
+    un_n=np.shape(uniques)[0]
+
+
 
     m=int(k/n)
 
-    fields = np.zeros((k,) + np.shape(gt))
+    currents=np.zeros((2,)+np.shape(gt),dtype=np.float32)
+
+    if verbose > 0:
+        print("Iterating through random cases...")
 
     i=0
     for i in range(0,m):
-        new_gt=np.zeros(np.shape(gt))
+
+        if verbose > 0:
+            s=t.time()
+            print(" Building case "+str(i+1)+" of "+str(m)+"...")
+            new_gt=np.zeros(np.shape(gt))
+
 
         i=1
-        for val in uniques:
-            rand=np.random.randint(1,4)
-
-            #ensures all values used
-            if i<4:
-                new_gt[np.where(gt==val)]=i
-                i+=1
-
-            else:
-                new_gt[np.where(gt == val)] = rand
 
 
+        #randomly shuffle and split IDs to get new data
+        np.random.shuffle(uniques)
+        l_1=uniques[0:math.ceil(un_n/3)]
+        l_2=uniques[math.ceil(un_n/3):2*math.ceil(un_n/3)]
+        l_3=uniques[2*math.ceil(un_n/3):]
 
-        tifffile.imsave("debug/rand_gt"+str(i),np.asarray(new_gt,dtype=np.float32))
+        new_gt[np.isin(gt,l_1)]=1
+        new_gt[np.isin(gt,l_2)]=2
+        new_gt[np.isin(gt,l_3)]=3
+
+        if verbose > 1:
+            print(" "+str(t.time()-s))
+            s=t.time()
+            print(" Solving...")
 
 
+        out=__get_fields_cuda(new_gt,n=n,verbose=verbose-2)
 
-        fields[i*n:(i+1)*n]=__get_fields(new_gt)
+        if verbose > 1:
+            print(" " + str(t.time() - s))
+            s = t.time()
+            print(" Updating max currents...")
+
+        currents[0]=__get_currents(out)
+
+        currents[1]=np.sum(currents,axis=0)
 
         i+=1
 
-    currents=__get_currents(fields)
+        if verbose > 1:
+            print(" " + str(t.time() - s))
 
-    return currents
 
-def __solve_poison(boundary_conds, n=100):
+    return currents[0]
+
+def __solve_cuda(boundary_conds,mask, n=100):
 
     kernel = [[[0, 0, 0],
                [0, 1, 0],
@@ -77,20 +108,26 @@ def __solve_poison(boundary_conds, n=100):
               [[0, 0, 0],
                [0, 1, 0],
                [0, 0, 0]]]
+    kernel=np.asarray(kernel)*(1/6)
 
     output=boundary_conds.copy()
 
-
     for i in range(0,n):
 
-        output=convolve(output,kernel)*(1/6)
+        output=gputools.convolve(output,kernel)
 
-        output[np.where(boundary_conds==1)]=1
-        output[np.where(boundary_conds==-1)]=-1
+        output=output*mask
+
+        output+=boundary_conds
 
     return output
 
-def __get_fields(gt,n=100):
+def __get_fields_cuda(gt,n=100,verbose=0):
+
+    if verbose==1:
+        print("     Initializing solver...")
+    s = t.time()
+
 
     uniques = np.unique(gt)
     uniques = np.delete(uniques, np.where(uniques == 0))
@@ -103,42 +140,80 @@ def __get_fields(gt,n=100):
 
     i = 0
 
+    mask=np.asarray(gt==0,dtype=np.float32)
+
+    if verbose == 1:
+        print("     " + str(t.time() - s))
+        print("     Iterating through labels...")
+
+
     # get PHI_i (fields)
     for num in uniques:
-        boundary_conds = np.zeros(np.shape(gt))
-        boundary_conds[np.where(gt != 0)] = -1
-        boundary_conds[np.where(gt == num)] = 1
 
-        tifffile.imsave("debug/boundary_conds" + str(i) + ".tif", np.asarray(boundary_conds, dtype=np.float32))
+        if verbose == 1:
+            print("         Setting up boundary conditions...")
+        s = t.time()
 
-        output = __solve_poison(boundary_conds,n=n)
+
+
+
+        boundary_conds=np.asarray(gt!=0,dtype=np.float32)
+        boundary_conds[np.where(gt == num)] = -1
+
+        if verbose == 1:
+            print("         "+str(t.time() - s))
+            print("         Getting approx solution...")
+
+
+        s = t.time()
+        #tifffile.imsave("debug/boundary_conds" + str(i) + ".tif", np.asarray(boundary_conds, dtype=np.float32))
+
+        output = __solve_cuda(boundary_conds,mask,n=n)
 
         fields[i] = output
 
-        tifffile.imsave("debug/field_"+str(i)+".tif",np.asarray(output,dtype=np.float32))
+        #tifffile.imsave("debug/field_"+str(i)+".tif",np.asarray(output,dtype=np.float32))
 
         i += 1
+
+        if verbose == 1:
+            print("         " + str(t.time() - s))
 
     return fields
 
 def __get_currents(fields):
 
-
     # get divergence mag of each point for each field
 
     #get grads in all directions
-    x_grads_saquared = np.square(sobel(fields, axis=1))
-    y_grads_saquared = np.square(sobel(fields, axis=2))
-    z_grads_saquared = np.square(sobel(fields, axis=3))*(1/16)
+    if np.shape(np.shape(fields))[0]==4:
+        x_grads_saquared = np.square(sobel(fields, axis=1))
+        y_grads_saquared = np.square(sobel(fields, axis=2))
+        z_grads_saquared = np.square(sobel(fields, axis=3))*(1/16)
 
-    grad_mag_squared = x_grads_saquared + y_grads_saquared + z_grads_saquared
+        grad_mag_squared = x_grads_saquared + y_grads_saquared + z_grads_saquared
 
-    grad_mags = np.sqrt(grad_mag_squared)
+        grad_mags = np.sqrt(grad_mag_squared)
 
-    #find max current at each point
-    currents = np.max(grad_mags, axis=0)
+        #find max current at each point
+        currents = np.max(grad_mags, axis=0)
 
-    return currents
+        return currents
+
+    if np.shape(np.shape(fields))[0] == 3:
+
+        x_grads_saquared = np.square(sobel(fields, axis=0))
+        y_grads_saquared = np.square(sobel(fields, axis=1))
+        z_grads_saquared = np.square(sobel(fields, axis=2)) * (1 / 16)
+
+        grad_mag_squared = x_grads_saquared + y_grads_saquared + z_grads_saquared
+
+        grad_mags = np.sqrt(grad_mag_squared)
+
+        # find max current at each point
+        currents = grad_mags
+
+        return currents
 
 # class state(object):
 #
@@ -295,4 +370,61 @@ def __get_currents(fields):
 #
 #                         new_phi[i,j,k]=averages[-5:]
 
-x=1
+
+# def __get_fields(gt,n=100):
+#
+#     uniques = np.unique(gt)
+#     uniques = np.delete(uniques, np.where(uniques == 0))
+#
+#     # Number of IDs
+#     N = np.shape(uniques)[0]
+#
+#     # (N,x,y,z) to hold all potential values
+#     fields = np.zeros((N,) + np.shape(gt))
+#
+#     i = 0
+#
+#     # get PHI_i (fields)
+#     for num in uniques:
+#         boundary_conds = np.zeros(np.shape(gt))
+#         boundary_conds[np.where(gt != 0)] = -1
+#         boundary_conds[np.where(gt == num)] = 1
+#
+#         tifffile.imsave("debug/boundary_conds" + str(i) + ".tif", np.asarray(boundary_conds, dtype=np.float32))
+#
+#         output = __solve_cuda(boundary_conds,n=n)
+#
+#         fields[i] = output
+#
+#         tifffile.imsave("debug/field_"+str(i)+".tif",np.asarray(output,dtype=np.float32))
+#
+#         i += 1
+#
+#     return fields
+# def __solve_poison(boundary_conds, n=100):
+#
+#
+#
+#     kernel = [[[0, 0, 0],
+#                [0, 1, 0],
+#                [0, 0, 0]],
+#               [[0, 1, 0],
+#                [1, 0, 1],
+#                [0, 1, 0]],
+#               [[0, 0, 0],
+#                [0, 1, 0],
+#                [0, 0, 0]]]
+#
+#     output=boundary_conds.copy()
+#
+#
+#     for i in range(0,n):
+#
+#         output=convolve(output,kernel)*(1/6)
+#
+#         output[np.where(boundary_conds==1)]=1
+#         output[np.where(boundary_conds==-1)]=-1
+#
+#
+#
+#     return output

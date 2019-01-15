@@ -4,4 +4,6 @@ TO DO
         -Test to find optimal number of iterations for solver
         -Determine best way to normalize output for loss scaling (maybe 1+normalize_current)
         -Adapt to work with tensorflow
+        -To increase memory efficency instead of saving all fields, have current field max currents and current currents saved,
+         update the max currents looking for new max's after each itteration, this reduces memory from K*gt size to 4*gt size
     
